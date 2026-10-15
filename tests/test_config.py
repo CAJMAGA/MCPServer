@@ -98,7 +98,27 @@ def test_parses_allowed_services():
 
 
 def test_missing_services_denies_all():
-    assert settings_from_mapping({}).allowed_services == frozenset()
+    settings = settings_from_mapping({})
+    assert settings.allowed_services == frozenset()
+    assert settings.allow_all_services is False
+
+
+@pytest.mark.parametrize("raw", ["ALL", "all", " All ", "ALL,"])
+def test_all_services_keyword(raw):
+    settings = settings_from_mapping({"MCP_ALLOWED_SERVICES": raw})
+    assert settings.allow_all_services is True
+    assert settings.allowed_services == frozenset()
+
+
+def test_specific_services_do_not_allow_all():
+    settings = settings_from_mapping({"MCP_ALLOWED_SERVICES": "Spooler"})
+    assert settings.allow_all_services is False
+
+
+@pytest.mark.parametrize("raw", ["ALL,Spooler", "Spooler, all"])
+def test_all_cannot_be_combined_with_names(raw):
+    with pytest.raises(ConfigError):
+        settings_from_mapping({"MCP_ALLOWED_SERVICES": raw})
 
 
 @pytest.mark.parametrize(

@@ -43,8 +43,9 @@ tools exist (see ROADMAP).
 ## 3. Request flow
 
 1. The AI client calls a tool, e.g. `get_windows_service(hostname, service_name)`.
-2. Tool-specific validation runs first (for example, `service_name` must be in
-   `MCP_ALLOWED_SERVICES`). Failures are rejected via `reject_request`.
+2. Tool-specific validation runs first (for example, `service_name` must be a
+   valid service name and permitted by `MCP_ALLOWED_SERVICES`). Failures are
+   rejected via `reject_request`.
 3. `run_powershell` checks `hostname` against `MCP_ALLOWED_HOSTS`. Unlisted
    hosts are rejected without starting any process.
 4. For approved hosts, the predefined script is base64-encoded as UTF-16LE and
@@ -52,7 +53,9 @@ tools exist (see ROADMAP).
    `ssh -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=<n> -- <host> powershell.exe -NoProfile -NonInteractive -EncodedCommand <b64>`
    with a process timeout of `MCP_COMMAND_TIMEOUT` seconds.
 5. Output is parsed as JSON when possible; otherwise the trimmed text is
-   returned.
+   returned. Scripts can signal known conditions with a dedicated exit code,
+   which `run_powershell` maps to a stable error message via
+   `exit_code_errors` (e.g. exit 2 → `"Service not found"`).
 6. An audit record is written and the result is returned with a `request_id`
    that matches the audit record.
 
@@ -76,7 +79,7 @@ finds it regardless of the client's working directory. See `.env.example`.
 | Variable | Default | Meaning |
 |---|---|---|
 | `MCP_ALLOWED_HOSTS` | empty (deny all) | Comma-separated SSH hosts / aliases that may be targeted. |
-| `MCP_ALLOWED_SERVICES` | empty (deny all) | Comma-separated service names `get_windows_service` may query. |
+| `MCP_ALLOWED_SERVICES` | empty (deny all) | Comma-separated service names `get_windows_service` may query, or `ALL` for any valid service name. |
 | `MCP_SSH_CONNECT_TIMEOUT` | `5` | SSH connection timeout, 1–300 seconds. |
 | `MCP_COMMAND_TIMEOUT` | `30` | Maximum runtime per remote command, 1–3600 seconds. |
 | `MCP_AUDIT_LOG_FILE` | `logs/audit.jsonl` | Audit log path; relative paths resolve from the project directory. |

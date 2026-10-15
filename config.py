@@ -10,7 +10,7 @@ import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Mapping, Optional
+from typing import Mapping, Optional, Tuple
 
 from dotenv import dotenv_values
 
@@ -26,11 +26,14 @@ DEFAULT_AUDIT_LOG_FILE = PROJECT_DIR / "logs" / "audit.jsonl"
 # be interpreted as an ssh option, and must not contain whitespace.
 _HOST_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,252}$")
 
-# Windows service name. Service names are interpolated into a single-quoted
-# PowerShell string, so quotes, whitespace and wildcard characters are
-# rejected. "$" is allowed (e.g. MSSQL$INSTANCE); it is literal inside
-# single quotes.
-_SERVICE_PATTERN = re.compile(r"^[A-Za-z0-9_.$-]{1,256}$")
+# Windows service name, applied both to allowlist entries and to every
+# service name a client requests. Excludes quotes, whitespace and the
+# Get-Service wildcard characters (* ? [ ]). "$" is allowed for names such
+# as MSSQL$INSTANCE.
+SERVICE_NAME_PATTERN = re.compile(r"^[A-Za-z0-9_.$-]{1,256}$")
+
+# MCP_ALLOWED_SERVICES value that permits querying any valid service name.
+ALL_SERVICES = "ALL"
 
 DEFAULT_SSH_CONNECT_TIMEOUT = 5
 DEFAULT_COMMAND_TIMEOUT = 30
@@ -48,6 +51,7 @@ class Settings:
     ssh_connect_timeout: int
     command_timeout: int
     allowed_services: frozenset = frozenset()
+    allow_all_services: bool = False
     audit_log_file: Path = DEFAULT_AUDIT_LOG_FILE
 
 
@@ -65,6 +69,22 @@ def _parse_list(
             raise ConfigError(f"{name} contains an invalid {kind}: {item!r}")
         items.add(item)
     return frozenset(items)
+
+
+def _parse_services(raw: Optional[str]) -> Tuple[frozenset, bool]:
+    """Return (allowed service names, allow_all flag)."""
+    entries = [e.strip() for e in (raw or "").split(",") if e.strip()]
+    if any(e.upper() == ALL_SERVICES for e in entries):
+        if len(entries) > 1:
+            raise ConfigError(
+                f"MCP_ALLOWED_SERVICES={ALL_SERVICES} must not be combined "
+                "with specific service names"
+            )
+        return frozenset(), True
+    services = _parse_list(
+        "MCP_ALLOWED_SERVICES", raw, SERVICE_NAME_PATTERN, "service name"
+    )
+    return services, False
 
 
 def _parse_path(raw: Optional[str], default: Path) -> Path:
@@ -93,6 +113,9 @@ def _parse_timeout(
 
 def settings_from_mapping(values: Mapping[str, str]) -> Settings:
     """Build validated Settings from a mapping of variable names to values."""
+    allowed_services, allow_all_services = _parse_services(
+        values.get("MCP_ALLOWED_SERVICES")
+    )
     settings = Settings(
         allowed_hosts=_parse_list(
             "MCP_ALLOWED_HOSTS",
@@ -112,12 +135,8 @@ def settings_from_mapping(values: Mapping[str, str]) -> Settings:
             DEFAULT_COMMAND_TIMEOUT,
             MAX_COMMAND_TIMEOUT,
         ),
-        allowed_services=_parse_list(
-            "MCP_ALLOWED_SERVICES",
-            values.get("MCP_ALLOWED_SERVICES"),
-            _SERVICE_PATTERN,
-            "service name",
-        ),
+        allowed_services=allowed_services,
+        allow_all_services=allow_all_services,
         audit_log_file=_parse_path(
             values.get("MCP_AUDIT_LOG_FILE"), DEFAULT_AUDIT_LOG_FILE
         ),
@@ -126,7 +145,7 @@ def settings_from_mapping(values: Mapping[str, str]) -> Settings:
         logger.warning(
             "MCP_ALLOWED_HOSTS is empty; all remote targets will be rejected"
         )
-    if not settings.allowed_services:
+    if not settings.allowed_services and not settings.allow_all_services:
         logger.warning(
             "MCP_ALLOWED_SERVICES is empty; all service queries will be "
             "rejected"

@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import json
 import subprocess
 
@@ -19,6 +20,24 @@ def lab_settings(monkeypatch):
     )
     monkeypatch.setattr(server, "settings", settings)
     return settings
+
+
+@pytest.fixture
+def all_services_settings(monkeypatch):
+    settings = Settings(
+        allowed_hosts=frozenset({"windows-lab"}),
+        ssh_connect_timeout=5,
+        command_timeout=30,
+        allow_all_services=True,
+    )
+    monkeypatch.setattr(server, "settings", settings)
+    return settings
+
+
+def _decoded_script(command):
+    """Recover the PowerShell script from an ssh command line."""
+    encoded = command[command.index("-EncodedCommand") + 1]
+    return base64.b64decode(encoded).decode("utf-16le")
 
 
 @pytest.fixture
@@ -116,6 +135,79 @@ def test_service_tool_still_checks_host(lab_settings, fake_run, audit_log):
     result = server.get_windows_service("prod-server", "Spooler")
     assert result["error"] == "Host not permitted"
     assert fake_run == []
+
+
+def test_all_services_allows_any_valid_name(
+    all_services_settings, fake_run, audit_log
+):
+    result = server.get_windows_service("windows-lab", "BITS")
+    assert result["success"] is True
+    assert len(fake_run) == 1
+
+
+@pytest.mark.parametrize(
+    "service_name",
+    [
+        "x'; Stop-Computer -Force; '",
+        "Spooler; Restart-Computer",
+        "$(Stop-Computer)",
+        "*",
+        "Win?",
+        "[Ss]pooler",
+        "Print Spooler",
+        "",
+        "a’b",
+        "x" * 257,
+    ],
+)
+def test_invalid_service_names_rejected_even_with_all(
+    all_services_settings, fake_run, audit_log, service_name
+):
+    result = server.get_windows_service("windows-lab", service_name)
+    assert result["success"] is False
+    assert result["error"] == "Invalid service name"
+    assert fake_run == []
+    [entry] = audit_log()
+    assert entry["error"] == "Invalid service name"
+
+
+def test_service_name_is_not_interpolated_into_script(
+    all_services_settings, fake_run, audit_log
+):
+    server.get_windows_service("windows-lab", "MSSQL$SQLEXPRESS")
+    script = _decoded_script(fake_run[0][0])
+    assert "MSSQL$SQLEXPRESS" not in script
+    encoded = base64.b64encode(b"MSSQL$SQLEXPRESS").decode("ascii")
+    assert f"FromBase64String('{encoded}')" in script
+    assert "Get-Service -Name $name" in script
+
+
+def test_service_not_found(all_services_settings, monkeypatch, audit_log):
+    def _not_found(command, **kwargs):
+        return subprocess.CompletedProcess(
+            command, server.SERVICE_NOT_FOUND_EXIT_CODE, stdout="", stderr=""
+        )
+
+    monkeypatch.setattr(server.subprocess, "run", _not_found)
+    result = server.get_windows_service("windows-lab", "NoSuchService")
+    assert result["success"] is False
+    assert result["error"] == "Service not found"
+    assert result["exit_code"] == server.SERVICE_NOT_FOUND_EXIT_CODE
+    [entry] = audit_log()
+    assert entry["error"] == "Service not found"
+    assert entry["validated_target"] == "windows-lab"
+
+
+def test_exit_code_mapping_only_applies_when_requested(
+    lab_settings, monkeypatch, audit_log
+):
+    def _exit2(command, **kwargs):
+        return subprocess.CompletedProcess(
+            command, 2, stdout="", stderr="remote error"
+        )
+
+    monkeypatch.setattr(server.subprocess, "run", _exit2)
+    assert _run("windows-lab")["error"] == "remote error"
 
 
 def test_successful_call_is_audited(lab_settings, fake_run, audit_log):

@@ -6,7 +6,10 @@ object described in [ARCHITECTURE.md](ARCHITECTURE.md#4-response-format).
 
 Common rejections, which happen before any remote execution:
 - `"Host not permitted"` — `hostname` is not in `MCP_ALLOWED_HOSTS`.
-- `"Service not permitted"` — `get_windows_service` only.
+- `"Invalid service name"` — `get_windows_service` only; the name contains
+  characters other than letters, digits, `_ . - $`.
+- `"Service not permitted"` — `get_windows_service` only; the name is not in
+  `MCP_ALLOWED_SERVICES` (never returned when it is `ALL`).
 
 ## Implemented
 
@@ -28,10 +31,20 @@ Calculated from `Win32_OperatingSystem` `TotalVisibleMemorySize` and
 `FreePhysicalMemory`, in GB rounded to 2 decimals.
 
 ### get_windows_service
-Runs `Get-Service -Name '<service_name>'`. `service_name` must exactly
-(case-sensitively) match an entry in `MCP_ALLOWED_SERVICES`. The tool
-description sent to clients lists the configured services, so changing the
-allowlist requires a server restart.
+Runs `Get-Service -Name $name`, with the name passed to the remote side as
+data (base64), never as script text. `service_name` is the service name
+(e.g. `Spooler`), not the display name.
+
+- If `MCP_ALLOWED_SERVICES` lists names, `service_name` must match one exactly
+  (case-sensitive).
+- If `MCP_ALLOWED_SERVICES=ALL`, any name made of letters, digits and
+  `_ . - $` is accepted.
+- If the service does not exist on the target, the result is
+  `"success": false, "error": "Service not found"` (remote exit code 2).
+
+The tool description sent to clients reflects the configuration (the list of
+services, or that any name is accepted), so changing it requires a server
+restart.
 
 ## Output format notes
 

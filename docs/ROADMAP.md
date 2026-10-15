@@ -10,7 +10,7 @@ marked done are implemented.
 - [x] Host allowlist with fail-closed default
 - [x] Read-only diagnostic tools: system info, CPU, memory, service status
 - [x] Configuration from `.env` / environment with startup validation
-- [x] Service allowlist moved to configuration
+- [x] Service allowlist moved to configuration, with an `ALL` option
 - [x] Connection and command timeouts
 - [x] JSON-lines audit log with request IDs returned to clients
 - [x] Unit tests with mocked remote execution
@@ -53,3 +53,6 @@ management, software deployment, policy-based permissions. See VISION.md.
 - **2026-10-14:** Remote transport is OpenSSH, not WinRM.
 - **2026-10-14:** No network-range (CIDR) check on resolved addresses; host
   authorization is by SSH host name / alias. See SECURITY.md §3.
+- **2026-10-14:** `MCP_ALLOWED_SERVICES=ALL` lets `get_windows_service`
+  query any valid service name. Client input is passed to PowerShell as
+  base64 data, not script text.

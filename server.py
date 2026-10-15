@@ -6,7 +6,7 @@ import sys
 import time
 from typing import Any, Mapping, Optional
 import audit
-from config import ConfigError, load_settings
+from config import ConfigError, SERVICE_NAME_PATTERN, load_settings
 
 # Load configuration (approved hosts, services, timeouts, audit log) from
 # .env / environment. Errors go to stderr; stdout is reserved for the MCP
@@ -120,10 +120,14 @@ def run_powershell(
    tool: str,
    operation: str,
    parameters: Optional[Mapping[str, Any]] = None,
+   exit_code_errors: Optional[Mapping[int, str]] = None,
 ) -> dict:
    """
    Execute a predefined PowerShell query on an approved Windows host
    through SSH key authentication, and audit the outcome.
+
+   exit_code_errors maps exit codes the script uses deliberately to stable
+   error messages (e.g. {2: "Service not found"}).
    """
    request_id = audit.new_request_id()
    started = time.monotonic()
@@ -136,6 +140,9 @@ def run_powershell(
        validated_target = None
    else:
        result = _execute_ssh(hostname, script)
+       exit_code = result.get("exit_code")
+       if exit_code_errors and exit_code in exit_code_errors:
+           result["error"] = exit_code_errors[exit_code]
        validated_target = hostname
    return _audited(
        result,
@@ -244,14 +251,27 @@ def get_windows_memory(hostname: str) -> dict:
        operation="read memory usage"
    )
 
+# Exit code the service script uses when the service does not exist.
+SERVICE_NOT_FOUND_EXIT_CODE = 2
+
+if settings.allow_all_services:
+   _allowed_services_text = (
+       "Any service name may be queried (letters, digits, _ . - $; "
+       "no wildcards)."
+   )
+else:
+   _allowed_services_text = "Allowed services: " + (
+       ", ".join(sorted(settings.allowed_services)) or "(none configured)"
+   )
+
 _SERVICE_TOOL_DESCRIPTION = f"""
-Retrieve the status of an approved Windows service.
-Allowed services: {", ".join(sorted(settings.allowed_services)) or "(none configured)"}
+Retrieve the status of a Windows service.
+{_allowed_services_text}
 
 Args:
     hostname: Approved SSH host or ~/.ssh/config alias
         of the Windows machine.
-    service_name: Name of the service to query (exact, case-sensitive).
+    service_name: Service name (not display name) to query, e.g. Spooler.
 """.strip()
 
 @mcp.tool(description=_SERVICE_TOOL_DESCRIPTION)
@@ -259,21 +279,36 @@ def get_windows_service(hostname: str, service_name: str) -> dict:
    tool = "get_windows_service"
    operation = "read service status"
    parameters = {"service_name": service_name}
-   # service_name is interpolated into the script below; it is safe only
-   # because it must exactly match a configured, pattern-validated entry.
-   if service_name not in settings.allowed_services:
+   if not SERVICE_NAME_PATTERN.match(service_name):
+       return reject_request(
+           hostname, "Invalid service name",
+           tool=tool, operation=operation, parameters=parameters
+       )
+   if (not settings.allow_all_services
+           and service_name not in settings.allowed_services):
        return reject_request(
            hostname, "Service not permitted",
            tool=tool, operation=operation, parameters=parameters
        )
+   # The name is passed as base64 and decoded into a variable on the
+   # remote side, so it is never parsed as PowerShell code.
+   encoded_name = base64.b64encode(
+       service_name.encode("utf-8")
+   ).decode("ascii")
    script = f"""
-   Get-Service -Name '{service_name}' |
+   $name = [System.Text.Encoding]::UTF8.GetString(
+       [System.Convert]::FromBase64String('{encoded_name}')
+   )
+   $svc = Get-Service -Name $name -ErrorAction SilentlyContinue
+   if ($null -eq $svc) {{ exit {SERVICE_NOT_FOUND_EXIT_CODE} }}
+   $svc |
    Select-Object Name, Status, DisplayName |
    ConvertTo-Json -Compress
    """
    return run_powershell(
        hostname, script,
-       tool=tool, operation=operation, parameters=parameters
+       tool=tool, operation=operation, parameters=parameters,
+       exit_code_errors={SERVICE_NOT_FOUND_EXIT_CODE: "Service not found"}
    )
 
 # Start the MCP server using stdio transport

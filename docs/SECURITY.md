@@ -31,11 +31,16 @@ from what is **not implemented**.
   PowerShell script.
 - Scripts are sent with `-EncodedCommand` (base64 UTF-16LE) and passed to
   `subprocess.run` as an argument list — no local shell is involved.
-- The only user-supplied value placed inside a script is `service_name`, and
-  only after it exactly matches an entry in `MCP_ALLOWED_SERVICES`. Allowlist
-  entries must match `^[A-Za-z0-9_.$-]{1,256}$`, which excludes quotes,
-  whitespace and wildcard characters. `$` is literal inside the single-quoted
-  PowerShell string.
+- Client-supplied values are never placed into scripts as code. The only one
+  today, `service_name`, is base64-encoded and decoded into a variable on the
+  remote side (`Get-Service -Name $name`), so it is always treated as data.
+- `service_name` must also match `^[A-Za-z0-9_.$-]{1,256}$` on every call
+  (rejected as `"Invalid service name"` otherwise). This excludes quotes,
+  whitespace and the `* ? [ ]` wildcards, so a request can't turn a single
+  lookup into a listing of every service.
+- `MCP_ALLOWED_SERVICES` either lists exact service names (same pattern,
+  checked at startup) or is `ALL`, which permits any name that passes the
+  pattern. `ALL` cannot be combined with specific names.
 - `ssh` runs with `BatchMode=yes` (never prompts) and `IdentitiesOnly=yes`.
 - Connection and command timeouts are enforced (`MCP_SSH_CONNECT_TIMEOUT`,
   `MCP_COMMAND_TIMEOUT`).
@@ -79,8 +84,9 @@ from what is **not implemented**.
 
 ## 4. Guidance for new tools
 
-- Use fixed scripts. Never build PowerShell from client input except through
-  a validated allowlist, and keep values inside single-quoted strings.
+- Use fixed scripts. Pass any client input into a script the way
+  `get_windows_service` does — base64-encoded and decoded into a variable —
+  never by inserting it into the script text. Validate its format as well.
 - Route all remote calls through `run_powershell` and all early rejections
   through `reject_request` so they are authorized and audited the same way.
 - Keep tools that change system state separate from read-only tools, and do
