@@ -2,19 +2,25 @@ from mcp.server.mcpserver import MCPServer
 import subprocess
 import json
 import base64
+import sys
+from config import ConfigError, load_settings
+
+# Load configuration (approved hosts, timeouts) from .env / environment.
+# Errors go to stderr; stdout is reserved for the MCP stdio transport.
+try:
+   settings = load_settings()
+except ConfigError as e:
+   sys.exit(f"Configuration error: {e}")
+
 # Initialize the MCP server
 mcp = MCPServer("Windows Infrastructure Lab")
-# Approved SSH hosts / aliases configured in ~/.ssh/config
-ALLOWED_HOSTS = {
-   "windows-lab"
-}
 
 def run_powershell(hostname: str, script: str) -> dict:
    """
    Execute a predefined PowerShell query on Windows
    through SSH key authentication.
    """
-   if hostname not in ALLOWED_HOSTS:
+   if hostname not in settings.allowed_hosts:
        return {
            "success": False,
            "hostname": hostname,
@@ -28,7 +34,7 @@ def run_powershell(hostname: str, script: str) -> dict:
        "ssh",
        "-o", "BatchMode=yes",
        "-o", "IdentitiesOnly=yes",
-       "-o", "ConnectTimeout=5",
+       "-o", f"ConnectTimeout={settings.ssh_connect_timeout}",
        "--",
        hostname,
        "powershell.exe",
@@ -42,7 +48,7 @@ def run_powershell(hostname: str, script: str) -> dict:
            command,
            capture_output=True,
            text=True,
-           timeout=30
+           timeout=settings.command_timeout
        )
        if result.returncode != 0:
            return {
