@@ -23,11 +23,7 @@ except OSError as e:
    sys.exit(f"Cannot open audit log {settings.audit_log_file}: {e}")
 
 # Initialize the MCP server
-mcp = MCPServer(
-   "Windows Infrastructure Lab",
-   host="0.0.0.0",
-   port=8000
-   )
+mcp = MCPServer("Windows Infrastructure Lab")
 
 def _execute_ssh(hostname: str, script: str) -> dict:
    """
@@ -317,4 +313,8 @@ def get_windows_service(hostname: str, service_name: str) -> dict:
 
 # Start the MCP server using stdio transport
 if __name__ == "__main__":
-   mcp.run(transport="streamable-http")
+   mcp.run(
+      transport="streamable-http",
+      host="0.0.0.0",
+      port=8000
+      )
