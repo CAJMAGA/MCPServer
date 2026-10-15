@@ -3,6 +3,11 @@
 .env.*
 !.env.example
 
+# Audit and runtime logs
+logs/
+*.log
+*.jsonl
+
 # SSH keys
 *.pem
 id_rsa*

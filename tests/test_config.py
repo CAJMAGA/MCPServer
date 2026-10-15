@@ -1,8 +1,12 @@
 import pytest
 
+from pathlib import Path
+
 from config import (
+    DEFAULT_AUDIT_LOG_FILE,
     DEFAULT_COMMAND_TIMEOUT,
     DEFAULT_SSH_CONNECT_TIMEOUT,
+    PROJECT_DIR,
     ConfigError,
     load_settings,
     settings_from_mapping,
@@ -82,3 +86,48 @@ def test_environment_overrides_env_file(tmp_path):
 def test_missing_env_file_is_not_an_error(tmp_path):
     settings = load_settings(env_file=tmp_path / "absent.env", environ={})
     assert settings.allowed_hosts == frozenset()
+
+
+def test_parses_allowed_services():
+    settings = settings_from_mapping(
+        {"MCP_ALLOWED_SERVICES": "Spooler, WinRM ,MSSQL$SQLEXPRESS"}
+    )
+    assert settings.allowed_services == frozenset(
+        {"Spooler", "WinRM", "MSSQL$SQLEXPRESS"}
+    )
+
+
+def test_missing_services_denies_all():
+    assert settings_from_mapping({}).allowed_services == frozenset()
+
+
+@pytest.mark.parametrize(
+    "service",
+    [
+        "Spooler'; Stop-Computer; '",
+        "Win RM",
+        "Win*",
+        "Spool?r",
+        "[Ss]pooler",
+        "a’b",
+        "x" * 257,
+    ],
+)
+def test_rejects_unsafe_service_names(service):
+    with pytest.raises(ConfigError):
+        settings_from_mapping({"MCP_ALLOWED_SERVICES": f"Spooler,{service}"})
+
+
+def test_audit_log_default():
+    assert settings_from_mapping({}).audit_log_file == DEFAULT_AUDIT_LOG_FILE
+
+
+def test_relative_audit_log_resolves_from_project_dir():
+    settings = settings_from_mapping({"MCP_AUDIT_LOG_FILE": "var/a.jsonl"})
+    assert settings.audit_log_file == PROJECT_DIR / "var" / "a.jsonl"
+
+
+def test_absolute_audit_log_path_kept(tmp_path):
+    path = tmp_path / "audit.jsonl"
+    settings = settings_from_mapping({"MCP_AUDIT_LOG_FILE": str(path)})
+    assert settings.audit_log_file == Path(path)

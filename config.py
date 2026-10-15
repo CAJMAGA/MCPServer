@@ -18,11 +18,19 @@ logger = logging.getLogger(__name__)
 
 # Resolved relative to this file, not the working directory, because MCP
 # clients often launch the server from an unrelated directory.
-ENV_FILE = Path(__file__).resolve().parent / ".env"
+PROJECT_DIR = Path(__file__).resolve().parent
+ENV_FILE = PROJECT_DIR / ".env"
+DEFAULT_AUDIT_LOG_FILE = PROJECT_DIR / "logs" / "audit.jsonl"
 
 # SSH host or ~/.ssh/config alias. Must not start with "-" so it can never
 # be interpreted as an ssh option, and must not contain whitespace.
 _HOST_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,252}$")
+
+# Windows service name. Service names are interpolated into a single-quoted
+# PowerShell string, so quotes, whitespace and wildcard characters are
+# rejected. "$" is allowed (e.g. MSSQL$INSTANCE); it is literal inside
+# single quotes.
+_SERVICE_PATTERN = re.compile(r"^[A-Za-z0-9_.$-]{1,256}$")
 
 DEFAULT_SSH_CONNECT_TIMEOUT = 5
 DEFAULT_COMMAND_TIMEOUT = 30
@@ -39,22 +47,32 @@ class Settings:
     allowed_hosts: frozenset
     ssh_connect_timeout: int
     command_timeout: int
+    allowed_services: frozenset = frozenset()
+    audit_log_file: Path = DEFAULT_AUDIT_LOG_FILE
 
 
-def _parse_hosts(raw: Optional[str]) -> frozenset:
+def _parse_list(
+    name: str, raw: Optional[str], pattern: "re.Pattern[str]", kind: str
+) -> frozenset:
     if raw is None or not raw.strip():
         return frozenset()
-    hosts = set()
+    items = set()
     for entry in raw.split(","):
-        host = entry.strip()
-        if not host:
+        item = entry.strip()
+        if not item:
             continue
-        if not _HOST_PATTERN.match(host):
-            raise ConfigError(
-                f"MCP_ALLOWED_HOSTS contains an invalid host: {host!r}"
-            )
-        hosts.add(host)
-    return frozenset(hosts)
+        if not pattern.match(item):
+            raise ConfigError(f"{name} contains an invalid {kind}: {item!r}")
+        items.add(item)
+    return frozenset(items)
+
+
+def _parse_path(raw: Optional[str], default: Path) -> Path:
+    if raw is None or not raw.strip():
+        return default
+    path = Path(raw.strip()).expanduser()
+    # Relative paths are anchored to the project, not the working directory.
+    return path if path.is_absolute() else PROJECT_DIR / path
 
 
 def _parse_timeout(
@@ -76,7 +94,12 @@ def _parse_timeout(
 def settings_from_mapping(values: Mapping[str, str]) -> Settings:
     """Build validated Settings from a mapping of variable names to values."""
     settings = Settings(
-        allowed_hosts=_parse_hosts(values.get("MCP_ALLOWED_HOSTS")),
+        allowed_hosts=_parse_list(
+            "MCP_ALLOWED_HOSTS",
+            values.get("MCP_ALLOWED_HOSTS"),
+            _HOST_PATTERN,
+            "host",
+        ),
         ssh_connect_timeout=_parse_timeout(
             "MCP_SSH_CONNECT_TIMEOUT",
             values.get("MCP_SSH_CONNECT_TIMEOUT"),
@@ -89,10 +112,24 @@ def settings_from_mapping(values: Mapping[str, str]) -> Settings:
             DEFAULT_COMMAND_TIMEOUT,
             MAX_COMMAND_TIMEOUT,
         ),
+        allowed_services=_parse_list(
+            "MCP_ALLOWED_SERVICES",
+            values.get("MCP_ALLOWED_SERVICES"),
+            _SERVICE_PATTERN,
+            "service name",
+        ),
+        audit_log_file=_parse_path(
+            values.get("MCP_AUDIT_LOG_FILE"), DEFAULT_AUDIT_LOG_FILE
+        ),
     )
     if not settings.allowed_hosts:
         logger.warning(
             "MCP_ALLOWED_HOSTS is empty; all remote targets will be rejected"
+        )
+    if not settings.allowed_services:
+        logger.warning(
+            "MCP_ALLOWED_SERVICES is empty; all service queries will be "
+            "rejected"
         )
     return settings
 
