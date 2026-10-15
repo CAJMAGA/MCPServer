@@ -56,7 +56,7 @@ A Python-based service responsible for exposing tools, validating requests, enfo
 
 Managed Windows Endpoints
 
-Remote Windows computers accessible through authorized management protocols such as PowerShell Remoting and WinRM.
+Remote Windows computers accessible through OpenSSH, with PowerShell executed remotely using key-based authentication.
 
 The MCP server is responsible for enforcing security controls independently of the AI client’s behavior.
 

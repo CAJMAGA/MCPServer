@@ -36,7 +36,7 @@ Current Technology
 * Primary language: Python
 * Protocol: Model Context Protocol (MCP)
 * Target operating systems: Windows
-* Remote administration: PowerShell and PowerShell Remoting / WinRM
+* Remote administration: PowerShell executed over OpenSSH (key-based authentication)
 * Configuration: Environment variables and .env files
 * AI integration: MCP-compatible locally hosted AI clients
 
@@ -195,7 +195,7 @@ Tools should gracefully handle:
 * DNS resolution failures
 * Authentication failures
 * Insufficient permissions
-* WinRM connection failures
+* SSH connection failures
 * PowerShell execution errors
 * Timeouts
 * Unexpected or malformed responses
