@@ -313,4 +313,8 @@ def get_windows_service(hostname: str, service_name: str) -> dict:
 
 # Start the MCP server using stdio transport
 if __name__ == "__main__":
-   mcp.run()
+   mcp.run(
+      transport="streamable-http",
+      host="127.0.0.1",
+      port=8000
+   )
