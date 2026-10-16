@@ -313,8 +313,14 @@ def get_windows_service(hostname: str, service_name: str) -> dict:
 
 # Start the MCP server using stdio transport
 if __name__ == "__main__":
-   mcp.run(
-      transport="streamable-http",
-      host="0.0.0.0",
-      port=8000
+   try:
+      mcp.run(
+         tranport="streamable-http",
+         host="0.0.0.0",
+         port=8000
       )
+
+   except KeyboardInterrupt:
+      print("\nMCP server stopped")
+
+   
