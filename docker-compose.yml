@@ -21,7 +21,7 @@ services:
       - audit-logs:/app/logs
       # SSH key, config (host aliases) and known_hosts for the Windows
       # endpoints. Must exist on the host; key file mode 600.
-      - /home/mcpadmin/.ssh:/home/mcp/.ssh:ro
+      - ${SSH_HOME}/.ssh:/home/mcp/.ssh:ro
     read_only: true
     tmpfs:
       - /tmp
