@@ -1,0 +1,34 @@
+services:
+  windows-mcp:
+    build:
+      context: .
+      args:
+        # Match the owner of ./ssh on the host (run `id -u` / `id -g`).
+        UID: "1000"
+        GID: "1000"
+    image: windows-mcp:latest
+    container_name: windows-mcp
+    restart: unless-stopped
+    # Same variables as .env.example (MCP_ALLOWED_HOSTS, etc.).
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      MCP_AUDIT_LOG_FILE: /app/logs/audit.jsonl
+    ports:
+      - "8000:8000"
+    volumes:
+      - audit-logs:/app/logs
+      # SSH key, config (host aliases) and known_hosts for the Windows
+      # endpoints. Must exist on the host; key file mode 600.
+      - ./ssh:/home/mcp/.ssh:ro
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  audit-logs:

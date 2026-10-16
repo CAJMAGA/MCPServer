@@ -9,6 +9,7 @@ logs/
 *.jsonl
 
 # SSH keys
+ssh/
 *.pem
 id_rsa*
 id_ed25519*
